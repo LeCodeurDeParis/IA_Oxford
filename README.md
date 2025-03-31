@@ -1,0 +1,1 @@
+# To launch the AI, you need to install first MVSA_Single from 'https://www.kaggle.com/datasets/vincemarcs/mvsasingle'
