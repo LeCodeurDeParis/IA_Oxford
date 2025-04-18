@@ -151,6 +151,8 @@ class ImageDataset(Dataset):
 
 transform = transforms.Compose([
     transforms.Resize((128, 128)),  # Resize every images to 128x128
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(10),
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 ])
@@ -188,9 +190,11 @@ class CNNModel(nn.Module):
         self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
         self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        self.dropout = nn.Dropout(p=0.5)
+
         self.fc1 = nn.Linear(64 * 16 * 16, 512)
         self.fc2 = nn.Linear(512, 128)
-        self.fc3 = nn.Linear(128, 3)  # 3 classes
+        self.fc3 = nn.Linear(128, 3)  # 3 résultats, neutre, positif, négatif
 
     def forward(self, x):
       x = self.pool(F.relu(self.conv1(x)))
@@ -202,6 +206,7 @@ class CNNModel(nn.Module):
       x = x.view(-1, 64 * 16 * 16)  # Flatten
       #print("After flatten:", x.size())
       x = F.relu(self.fc1(x))
+      x = self.dropout(x)
       x = F.relu(self.fc2(x))
       x = self.fc3(x)
       #print("After fc layers:", x.size())
@@ -213,6 +218,7 @@ class LSTMTextModel(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embed_size)
         self.lstm = nn.LSTM(embed_size, hidden_size, batch_first=True)
         self.fc1 = nn.Linear(hidden_size, 128)
+        self.dropout = nn.Dropout(p=0.5)
         self.fc2 = nn.Linear(128, num_classes)
 
     def forward(self, x):
@@ -220,6 +226,7 @@ class LSTMTextModel(nn.Module):
         x, _ = self.lstm(x)
         x = x[:, -1, :]  # Taking the last output of the sequence
         x = F.relu(self.fc1(x))
+        x = self.dropout(x)
         x = self.fc2(x)
         return x
     
@@ -240,13 +247,13 @@ class TrainingCallback:
         self.patience_counter = 0
         os.makedirs(self.save_path, exist_ok=True)
 
-    def on_epoch_end(self, model, epoch, train_loss):
+    def on_epoch_end(self, model, epoch, val_loss):
         # Backup of the best model
-        if train_loss < self.best_loss:
-            self.best_loss = train_loss
+        if val_loss < self.best_loss:
+            self.best_loss = val_loss
             self.patience_counter = 0
             torch.save(model.state_dict(), os.path.join(self.save_path, 'best_model.pth'))
-            print(f"Epoch {epoch+1}: Training loss improved to {train_loss:.4f}. Model saved.")
+            print(f"Epoch {epoch+1}: Val loss improved to {val_loss:.4f}. Model saved.")
         else:
             self.patience_counter += 1
             if self.patience_counter >= self.patience:
@@ -321,11 +328,11 @@ def train_cnn(model, train_loader, val_loader, criterion, optimizer, device, num
         print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {epoch_train_loss:.4f}")
 
         # Check if we should stop training
-        if callback.on_epoch_end(model, epoch, epoch_train_loss):
+        if callback.on_epoch_end(model, epoch, epoch_val_loss):
             break
     return train_losses, val_losses, train_accuracy, val_accuracy
 
-train_losses, val_losses, train_accuracy, val_accuracy = train_cnn(cnn_model, train_loader_images, test_loader_images, criterion_cnn, optimizer_cnn, device, num_epochs=10)
+train_losses, val_losses, train_accuracy, val_accuracy = train_cnn(cnn_model, train_loader_images, test_loader_images, criterion_cnn, optimizer_cnn, device, num_epochs=20)
 
 # Plot Loss
 plt.figure(figsize=(12, 5))
